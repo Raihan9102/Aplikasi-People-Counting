@@ -56,8 +56,11 @@ class HomePage extends StatelessWidget {
           ),
         ],
       ),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: ListView(
         padding: const EdgeInsets.all(16),
+        // Mencegah overscroll grey/white flash di iOS dan Android
+        physics: const ClampingScrollPhysics(),
         children: [
           StreamBuilder<List<DetectionEvent>>(
             stream: FirebasePeopleCounterService.recentEventsStream(limit: 1),
@@ -397,7 +400,7 @@ class _RoomStatusCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE7ECF3)),
         boxShadow: const [
@@ -669,11 +672,11 @@ class _LineChartPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
 
     final fillPaint = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [Color(0x332563EB), Color(0x052563EB)],
-      ).createShader(Offset.zero & size);
+        colors: const [Color(0x332563EB), Color(0x052563EB)],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     final pointPaint = Paint()..color = pointColor;
     final pointStrokePaint = Paint()
