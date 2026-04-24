@@ -1,15 +1,38 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'dart:math' as math;
 import '../models/detection_event.dart';
 import '../models/live_status.dart';
 import '../services/firebase_people_counter_service.dart';
 import '../utils/format_helper.dart';
-import 'package:easy_localization/easy_localization.dart'; // Import localization
+import 'package:easy_localization/easy_localization.dart';
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
   static const String flaskBaseUrl = "http://10.186.223.150:5000/captures/";
+
+  late final Stream<List<DetectionEvent>> _latestEventStream;
+  late final Stream<LiveStatus> _liveStatusStream;
+  late final Stream<List<DetectionEvent>> _recentEventsStream;
+  late final Stream<List<DetectionEvent>> _last5EventsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    // Stream di-init sekali — service sudah handle broadcast & caching
+    _latestEventStream =
+        FirebasePeopleCounterService.recentEventsStream(limit: 1);
+    _liveStatusStream = FirebasePeopleCounterService.liveStatusStream();
+    _recentEventsStream =
+        FirebasePeopleCounterService.recentEventsStream(limit: 120);
+    _last5EventsStream =
+        FirebasePeopleCounterService.recentEventsStream(limit: 5);
+  }
 
   void _showResetConfirmation(BuildContext context) {
     showDialog(
@@ -30,17 +53,13 @@ class HomePage extends StatelessWidget {
                 SnackBar(content: Text('reset_success_msg'.tr())),
               );
             },
-            child: Text('reset'.tr(), style: TextStyle(color: Colors.red)),
+            child: Text(
+              'reset'.tr(),
+              style: const TextStyle(color: Colors.red),
+            ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildLiveCaptureCard(DetectionEvent? latestEvent) {
-    return _LiveCaptureCard(
-      latestEvent: latestEvent,
-      flaskBaseUrl: flaskBaseUrl,
     );
   }
 
@@ -49,38 +68,34 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text('home_title'.tr()),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _showResetConfirmation(context),
-          ),
-        ],
       ),
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: ListView(
         padding: const EdgeInsets.all(16),
-        // Mencegah overscroll grey/white flash di iOS dan Android
         physics: const ClampingScrollPhysics(),
         children: [
           StreamBuilder<List<DetectionEvent>>(
-            stream: FirebasePeopleCounterService.recentEventsStream(limit: 1),
+            stream: _latestEventStream,
             builder: (context, snapshot) {
               final latestEvent =
                   (snapshot.data != null && snapshot.data!.isNotEmpty)
                       ? snapshot.data!.first
                       : null;
-              return _buildLiveCaptureCard(latestEvent);
+              return _LiveCaptureCard(
+                latestEvent: latestEvent,
+                flaskBaseUrl: flaskBaseUrl,
+              );
             },
           ),
           const SizedBox(height: 16),
           StreamBuilder<LiveStatus>(
-            stream: FirebasePeopleCounterService.liveStatusStream(),
+            stream: _liveStatusStream,
             builder: (context, snapshot) {
               final live = snapshot.data ?? LiveStatus.empty();
 
               return Card(
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20)),
+                  borderRadius: BorderRadius.circular(20),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
@@ -94,22 +109,21 @@ class HomePage extends StatelessWidget {
                             style: Theme.of(context)
                                 .textTheme
                                 .titleLarge
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           IconButton(
                             onPressed: () => _showResetConfirmation(context),
-                            icon: const Icon(Icons.restore_rounded,
-                                color: Colors.blueAccent),
+                            icon: const Icon(
+                              Icons.restore_rounded,
+                              color: Colors.blueAccent,
+                            ),
                             tooltip: 'daily_reset'.tr(),
                           ),
                         ],
                       ),
                       const SizedBox(height: 20),
                       Text(
-                        "${'last_detected'.tr()}: ${FormatHelper.formatTimestamp(live.lastDetectedAt)}"
-                            .tr(),
+                        "${'last_detected'.tr()}: ${FormatHelper.formatTimestamp(live.lastDetectedAt)}",
                         style: const TextStyle(color: Colors.grey),
                       ),
                       const SizedBox(height: 18),
@@ -150,7 +164,7 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           StreamBuilder<LiveStatus>(
-            stream: FirebasePeopleCounterService.liveStatusStream(),
+            stream: _liveStatusStream,
             builder: (context, snapshot) {
               final live = snapshot.data ?? LiveStatus.empty();
               return _RoomStatusCard(live: live);
@@ -158,7 +172,7 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           StreamBuilder<List<DetectionEvent>>(
-            stream: FirebasePeopleCounterService.recentEventsStream(limit: 120),
+            stream: _recentEventsStream,
             builder: (context, snapshot) {
               final events = snapshot.data ?? [];
               return _RecentActivityCard(events: events);
@@ -171,14 +185,14 @@ class HomePage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           StreamBuilder<List<DetectionEvent>>(
-            stream: FirebasePeopleCounterService.recentEventsStream(limit: 5),
+            stream: _last5EventsStream,
             builder: (context, snapshot) {
               final events = snapshot.data ?? [];
 
               if (events.isEmpty) {
                 return Card(
                   child: Padding(
-                    padding: EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
                     child: Text('no_events_yet.'.tr()),
                   ),
                 );
@@ -201,8 +215,7 @@ class HomePage extends StatelessWidget {
                         ),
                         title: Text(event.title),
                         subtitle: Text(
-                          'Track ID ${event.trackId} • '
-                          '${FormatHelper.formatTimestamp(event.detectedAt)}',
+                          'Track ID ${event.trackId} • ${FormatHelper.formatTimestamp(event.detectedAt)}',
                         ),
                       ),
                     ),
@@ -217,7 +230,7 @@ class HomePage extends StatelessWidget {
   }
 }
 
-class _LiveCaptureCard extends StatefulWidget {
+class _LiveCaptureCard extends StatelessWidget {
   final DetectionEvent? latestEvent;
   final String flaskBaseUrl;
 
@@ -227,61 +240,16 @@ class _LiveCaptureCard extends StatefulWidget {
   });
 
   @override
-  State<_LiveCaptureCard> createState() => _LiveCaptureCardState();
-}
-
-class _LiveCaptureCardState extends State<_LiveCaptureCard> {
-  // Unique bust key per render attempt — prevents Flutter's image cache
-  // from serving a stale/404 copy of the same filename.
-  int _cacheBust = DateTime.now().millisecondsSinceEpoch;
-  bool _hasError = false;
-  Timer? _retryTimer;
-  int _retryCount = 0;
-  static const int _maxRetries = 5;
-  static const Duration _retryDelay = Duration(seconds: 2);
-
-  @override
-  void didUpdateWidget(_LiveCaptureCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // New event from Firebase → reset error state and try fresh
-    if (oldWidget.latestEvent?.imageName != widget.latestEvent?.imageName) {
-      _retryTimer?.cancel();
-      setState(() {
-        _cacheBust = DateTime.now().millisecondsSinceEpoch;
-        _hasError = false;
-        _retryCount = 0;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _retryTimer?.cancel();
-    super.dispose();
-  }
-
-  void _scheduleRetry() {
-    if (_retryCount >= _maxRetries) return;
-    _retryTimer?.cancel();
-    _retryTimer = Timer(_retryDelay, () {
-      if (!mounted) return;
-      setState(() {
-        _retryCount++;
-        _cacheBust = DateTime.now().millisecondsSinceEpoch;
-        _hasError = false;
-      });
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final imageName = widget.latestEvent?.imageName;
+    final imageName = latestEvent?.imageName;
     final hasImage = imageName != null && imageName.trim().isNotEmpty;
 
-    // Always bust cache with a fresh millisecond timestamp so Flask serves
-    // the latest file, not a browser/Flutter cached 404 response.
+    final cacheBust = latestEvent?.detectedAt is DateTime
+        ? (latestEvent!.detectedAt as DateTime).millisecondsSinceEpoch
+        : DateTime.now().millisecondsSinceEpoch;
+
     final imageUrl =
-        hasImage ? "${widget.flaskBaseUrl}$imageName?v=$_cacheBust" : null;
+        hasImage ? "${flaskBaseUrl}${imageName}?v=$cacheBust" : null;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
@@ -289,100 +257,75 @@ class _LiveCaptureCardState extends State<_LiveCaptureCard> {
         height: 240,
         color: Colors.black87,
         child: !hasImage
-            ? Center()
-            : _hasError
-                ? _buildErrorPlaceholder()
-                : Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.network(
-                        imageUrl!,
-                        // ValueKey forces Flutter to rebuild the widget and
-                        // issue a new HTTP request on each retry/new event.
-                        key: ValueKey('$imageName-$_cacheBust'),
-                        fit: BoxFit.cover,
-                        headers: const {
-                          'Cache-Control': 'no-cache, no-store',
-                          'Pragma': 'no-cache',
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          // Schedule a retry instead of showing a hard error
-                          // immediately — the file may still be writing to disk.
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!mounted) return;
-                            if (_retryCount < _maxRetries) {
-                              _scheduleRetry();
-                            } else {
-                              setState(() => _hasError = true);
-                            }
-                          });
-                          return const Center(
-                            child: CircularProgressIndicator(
+            ? Center(
+                child: Text(
+                  'text_for_camera'.tr(),
+                  style: const TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+              )
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.network(
+                    imageUrl!,
+                    key: ValueKey(imageUrl),
+                    fit: BoxFit.cover,
+                    headers: const {
+                      'Cache-Control': 'no-cache, no-store',
+                      'Pragma': 'no-cache',
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.black87,
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.broken_image_outlined,
                               color: Colors.white54,
+                              size: 40,
                             ),
-                          );
-                        },
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return const Center(
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
+                            const SizedBox(height: 8),
+                            Text(
+                              'text_for_camera'.tr(),
+                              style: const TextStyle(color: Colors.white70),
+                              textAlign: TextAlign.center,
                             ),
-                          );
-                        },
+                          ],
+                        ),
+                      );
+                    },
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
+                    },
+                    gaplessPlayback: false,
+                  ),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: Container(
+                      margin: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
                       ),
-                      Align(
-                        alignment: Alignment.bottomRight,
-                        child: Container(
-                          margin: const EdgeInsets.all(12),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          color: Colors.black54,
-                          child: Text(
-                            "${'LIVE_CAPTURE'.tr()}: ${widget.latestEvent!.typeLabel.toUpperCase()}",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                      color: Colors.black54,
+                      child: Text(
+                        "LIVE CAPTURE: ${latestEvent!.typeLabel.toUpperCase()}",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ],
+                    ),
                   ),
-      ),
-    );
-  }
-
-  Widget _buildErrorPlaceholder() {
-    return Container(
-      color: Colors.black87,
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.broken_image_outlined,
-              color: Colors.white54, size: 40),
-          const SizedBox(height: 8),
-          Text(
-            "text_for_camera".tr(),
-            style: TextStyle(color: Colors.white70),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 12),
-          TextButton.icon(
-            onPressed: () {
-              setState(() {
-                _cacheBust = DateTime.now().millisecondsSinceEpoch;
-                _hasError = false;
-                _retryCount = 0;
-              });
-            },
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            label:
-                Text("try_again".tr(), style: TextStyle(color: Colors.white)),
-          ),
-        ],
+                ],
+              ),
       ),
     );
   }
@@ -400,7 +343,7 @@ class _RoomStatusCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: const Color(0xFFE7ECF3)),
         boxShadow: const [
@@ -482,7 +425,7 @@ class _RecentActivityCard extends StatelessWidget {
       (maxY * 3 / 4).round(),
       (maxY / 2).round(),
       (maxY / 4).round(),
-      0
+      0,
     ];
 
     return Container(
@@ -510,13 +453,13 @@ class _RecentActivityCard extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'hourly_people_count'.tr(),
+          const Text(
+            'hourly_people_count',
             style: TextStyle(
               fontSize: 15,
               color: Color(0xFF64748B),
             ),
-          ),
+          ).tr(),
           const SizedBox(height: 18),
           SizedBox(
             height: 250,
@@ -546,12 +489,14 @@ class _RecentActivityCard extends StatelessWidget {
                   child: Column(
                     children: [
                       Expanded(
-                        child: CustomPaint(
-                          painter: _LineChartPainter(
-                            points: points,
-                            maxY: maxY.toDouble(),
+                        child: RepaintBoundary(
+                          child: CustomPaint(
+                            painter: _LineChartPainter(
+                              points: points,
+                              maxY: maxY.toDouble(),
+                            ),
+                            child: Container(),
                           ),
-                          child: Container(),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -650,6 +595,9 @@ class _LineChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
+    if (size.width <= 0 || size.height <= 0) return;
+    if (size.width.isNaN || size.height.isNaN) return;
+    if (size.width.isInfinite || size.height.isInfinite) return;
 
     const gridColor = Color(0xFFD9E2F1);
     const axisColor = Color(0xFFD9E2F1);
@@ -672,11 +620,11 @@ class _LineChartPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
 
     final fillPaint = Paint()
-      ..shader = LinearGradient(
+      ..shader = const LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: const [Color(0x332563EB), Color(0x052563EB)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+        colors: [Color(0x332563EB), Color(0x052563EB)],
+      ).createShader(Offset.zero & size);
 
     final pointPaint = Paint()..color = pointColor;
     final pointStrokePaint = Paint()
@@ -689,6 +637,8 @@ class _LineChartPainter extends CustomPainter {
 
     for (var i = 0; i <= rowCount; i++) {
       final y = size.height * i / rowCount;
+      if (y.isNaN || y.isInfinite) return;
+
       _drawDashedLine(
         canvas,
         Offset(0, y),
@@ -699,6 +649,8 @@ class _LineChartPainter extends CustomPainter {
 
     for (var i = 0; i <= colCount; i++) {
       final x = size.width * i / colCount;
+      if (x.isNaN || x.isInfinite) return;
+
       _drawDashedLine(
         canvas,
         Offset(x, 0),
@@ -709,18 +661,30 @@ class _LineChartPainter extends CustomPainter {
 
     canvas.drawLine(Offset(0, 0), Offset(0, size.height), axisPaint);
     canvas.drawLine(
-        Offset(0, size.height), Offset(size.width, size.height), axisPaint);
+      Offset(0, size.height),
+      Offset(size.width, size.height),
+      axisPaint,
+    );
 
     final offsets = <Offset>[];
     for (var i = 0; i < points.length; i++) {
       final x = points.length == 1
           ? size.width / 2
           : size.width * i / (points.length - 1);
+
       final normalized =
           maxY <= 0 ? 0.0 : (points[i].value / maxY).clamp(0.0, 1.0);
+
       final y = size.height - (normalized * size.height);
+
+      if (x.isNaN || y.isNaN || x.isInfinite || y.isInfinite) {
+        return;
+      }
+
       offsets.add(Offset(x, y));
     }
+
+    if (offsets.isEmpty) return;
 
     final linePath = Path()..moveTo(offsets.first.dx, offsets.first.dy);
     final fillPath = Path()..moveTo(offsets.first.dx, size.height);
@@ -731,10 +695,24 @@ class _LineChartPainter extends CustomPainter {
       final next = offsets[i + 1];
       final controlX = (current.dx + next.dx) / 2;
 
+      if (controlX.isNaN || controlX.isInfinite) return;
+
       linePath.cubicTo(
-          controlX, current.dy, controlX, next.dy, next.dx, next.dy);
+        controlX,
+        current.dy,
+        controlX,
+        next.dy,
+        next.dx,
+        next.dy,
+      );
       fillPath.cubicTo(
-          controlX, current.dy, controlX, next.dy, next.dx, next.dy);
+        controlX,
+        current.dy,
+        controlX,
+        next.dy,
+        next.dx,
+        next.dy,
+      );
     }
 
     fillPath.lineTo(offsets.last.dx, size.height);
@@ -744,6 +722,13 @@ class _LineChartPainter extends CustomPainter {
     canvas.drawPath(linePath, linePaint);
 
     for (final offset in offsets) {
+      if (offset.dx.isNaN ||
+          offset.dy.isNaN ||
+          offset.dx.isInfinite ||
+          offset.dy.isInfinite) {
+        return;
+      }
+
       canvas.drawCircle(offset, 5.5, pointPaint);
       canvas.drawCircle(offset, 5.5, pointStrokePaint);
     }
@@ -774,14 +759,33 @@ class _LineChartPainter extends CustomPainter {
   ) {
     const dashWidth = 4.0;
     const dashSpace = 4.0;
-    final totalDistance = (end - start).distance;
-    final direction = (end - start) / totalDistance;
+
+    final delta = end - start;
+    final totalDistance = delta.distance;
+
+    if (totalDistance <= 0 || totalDistance.isNaN || totalDistance.isInfinite) {
+      return;
+    }
+
+    final direction = delta / totalDistance;
     double distance = 0;
 
     while (distance < totalDistance) {
       final currentStart = start + direction * distance;
       final currentEnd =
           start + direction * math.min(distance + dashWidth, totalDistance);
+
+      if (currentStart.dx.isNaN ||
+          currentStart.dy.isNaN ||
+          currentEnd.dx.isNaN ||
+          currentEnd.dy.isNaN ||
+          currentStart.dx.isInfinite ||
+          currentStart.dy.isInfinite ||
+          currentEnd.dx.isInfinite ||
+          currentEnd.dy.isInfinite) {
+        return;
+      }
+
       canvas.drawLine(currentStart, currentEnd, paint);
       distance += dashWidth + dashSpace;
     }
@@ -804,38 +808,41 @@ class _HourlyPoint {
   final String label;
   final int value;
 
-  const _HourlyPoint({required this.label, required this.value});
+  const _HourlyPoint({
+    required this.label,
+    required this.value,
+  });
 }
 
 _StatusInfo _roomStatus(int peopleInside) {
   if (peopleInside >= 20) {
     return _StatusInfo(
       label: 'crowded'.tr(),
-      dotColor: Color(0xFFEF4444),
-      lightColor: Color(0xFFFEE2E2),
+      dotColor: const Color(0xFFEF4444),
+      lightColor: const Color(0xFFFEE2E2),
     );
   }
 
   if (peopleInside >= 10) {
     return _StatusInfo(
       label: 'warning'.tr(),
-      dotColor: Color(0xFFF59E0B),
-      lightColor: Color(0xFFFFF3D6),
+      dotColor: const Color(0xFFF59E0B),
+      lightColor: const Color(0xFFFFF3D6),
     );
   }
 
   if (peopleInside == 0) {
     return _StatusInfo(
       label: 'empty'.tr(),
-      dotColor: Color.fromARGB(255, 174, 183, 184),
-      lightColor: Color(0xFFFFF3D6),
+      dotColor: const Color.fromARGB(255, 174, 183, 184),
+      lightColor: const Color(0xFFFFF3D6),
     );
   }
 
   return _StatusInfo(
     label: 'normal'.tr(),
-    dotColor: Color.fromARGB(255, 83, 240, 16),
-    lightColor: Color(0xFFFFF3D6),
+    dotColor: const Color.fromARGB(255, 83, 240, 16),
+    lightColor: const Color(0xFFFFF3D6),
   );
 }
 
@@ -878,7 +885,7 @@ List<_HourlyPoint> _buildHourlyPoints(List<DetectionEvent> events) {
 
 int _niceMaxY(int value) {
   if (value <= 7) return 7;
-  final step = 7;
+  const step = 7;
   return ((value + step - 1) ~/ step) * step;
 }
 
@@ -893,5 +900,6 @@ DateTime _normalizeDetectedAt(dynamic value) {
   }
 
   throw ArgumentError(
-      "${'unsupported_detectedat_type'.tr()}: ${value.runtimeType}");
+    "${'unsupported_detectedat_type'.tr()}: ${value.runtimeType}",
+  );
 }
